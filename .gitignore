@@ -1,23 +1,49 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
+# Dependencies
+node_modules
 /.pnp
 .pnp.js
 
-# testing
+# Testing
 /coverage
+.nyc_output
 
-# production
+# Production
 /build
+/dist
 
-# misc
-.DS_Store
+# Environment variables
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+.env*.local
 
+# Misc
+.DS_Store
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+
+# Terraform
+.terraform
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# Kubernetes
+*.kubeconfig

@@ -1,5 +1,6 @@
 # ============================================
-# File: K8s/deployment.yml
+# File: K8S/deployment.yml
+# Production-ready Kubernetes Deployment
 # ============================================
 apiVersion: apps/v1
 kind: Deployment
@@ -9,6 +10,8 @@ metadata:
   labels:
     app: hotstar
     version: v1
+    component: frontend
+    managed-by: jenkins
 spec:
   replicas: 3  # High Availability: minimum 3 replicas
   strategy:
@@ -26,6 +29,7 @@ spec:
       labels:
         app: hotstar
         version: v1
+        component: frontend
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
@@ -57,7 +61,12 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
-        fsReadOnlyRootFilesystem: true
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      # Service account for pod
+      serviceAccountName: hotstar-sa
       
       containers:
       - name: hotstar
@@ -77,6 +86,16 @@ spec:
           value: "info"
         - name: PORT
           value: "3000"
+        - name: APP_VERSION
+          value: "v1.0.0"
+        # API Key from Kubernetes Secret
+        - name: REACT_APP_TMDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: hotstar-secrets
+              key: tmdb-api-key
+        - name: REACT_APP_TMDB_BASE_URL
+          value: "https://api.themoviedb.org/3"
         
         # Resource requests & limits for scheduling & QoS
         resources:
@@ -90,10 +109,17 @@ spec:
         # Container-level security
         securityContext:
           allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
+          readOnlyRootFilesystem: false  # Changed to false for Node.js runtime
           capabilities:
             drop:
             - ALL
+          runAsNonRoot: true
+          runAsUser: 1001
+        
+        # Volume mounts for writable directories
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         
         # Liveness Probe: restart pod if unhealthy
         livenessProbe:
@@ -105,10 +131,36 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
+          successThreshold: 1
         
         # Readiness Probe: remove from load balancer if not ready
         readinessProbe:
           httpGet:
             path: /health
             port: http
-            scheme
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+          successThreshold: 1
+        
+        # Startup Probe: give container time to start
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+          successThreshold: 1
+      
+      # Volumes
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      
+      # Termination grace period
+      terminationGracePeriodSeconds: 30
