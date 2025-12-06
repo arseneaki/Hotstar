@@ -1,19 +1,114 @@
+# ============================================
+# File: K8s/deployment.yml
+# ============================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: hotstar-deployment
+  name: hotstar
+  namespace: default
+  labels:
+    app: hotstar
+    version: v1
 spec:
-  replicas: 1  # Number of desired replicas
+  replicas: 3  # High Availability: minimum 3 replicas
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Zero-downtime deployments
+  
   selector:
     matchLabels:
       app: hotstar
+  
   template:
     metadata:
       labels:
         app: hotstar
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    
     spec:
+      # Pod Anti-Affinity: spread pods across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - hotstar
+              topologyKey: kubernetes.io/hostname
+      
+      # Tolerate node failures
+      tolerations:
+      - key: node.kubernetes.io/not-ready
+        operator: Exists
+        effect: NoExecute
+        tolerationSeconds: 300
+      
+      # Pod-level security
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsReadOnlyRootFilesystem: true
+      
       containers:
       - name: hotstar
         image: arseneaki17/hotstar:latest
+        imagePullPolicy: Always
+        
         ports:
-        - containerPort: 3000  # Port your application listens on
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        
+        # Environment variables
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: PORT
+          value: "3000"
+        
+        # Resource requests & limits for scheduling & QoS
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        # Container-level security
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        
+        # Liveness Probe: restart pod if unhealthy
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Readiness Probe: remove from load balancer if not ready
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme
