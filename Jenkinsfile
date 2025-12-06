@@ -56,7 +56,7 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 script {
-                    try {
+                    catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                         timeout(time: 5, unit: 'MINUTES') {
                             def qg = waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token'
                             if (qg.status != 'OK') {
@@ -66,10 +66,8 @@ pipeline {
                                 echo "✅ Quality Gate passed"
                             }
                         }
-                    } catch (Exception e) {
-                        echo "⚠️ Quality Gate check failed: ${e.getMessage()}"
-                        echo "⚠️ Continuing pipeline..."
                     }
+                    echo "✅ Quality Gate stage completed (continuing pipeline)"
                 }
             }
         }
