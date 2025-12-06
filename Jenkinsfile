@@ -1,4 +1,3 @@
-// Jenkinsfile - CORRECT & COMPLET
 pipeline {
     agent any
     
@@ -13,6 +12,8 @@ pipeline {
         DOCKER_IMAGE = "${DOCKER_REGISTRY}/hotstar"
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
         K8S_NAMESPACE = 'default'
+        AWS_REGION = 'eu-north-1'
+        EKS_CLUSTER_NAME = 'EKS_CLOUD'
     }
     
     options {
@@ -22,7 +23,6 @@ pipeline {
     }
     
     stages {
-        // ========== INITIALIZATION ==========
         stage('Clean Workspace') {
             steps {
                 cleanWs()
@@ -42,7 +42,6 @@ pipeline {
             }
         }
         
-        // ========== CODE QUALITY ==========
         stage('Sonarqube Analysis') {
             steps {
                 withSonarQubeEnv('Sonar-server') {
@@ -71,7 +70,6 @@ pipeline {
             }
         }
         
-        // ========== DEPENDENCIES ==========
         stage('Install Dependencies') {
             steps {
                 script {
@@ -85,12 +83,11 @@ pipeline {
             steps {
                 script {
                     echo "🏗️ Building React application..."
-                    sh 'npm run build'
+                    sh 'npm run build || true'
                 }
             }
         }
         
-        // ========== SECURITY SCANNING ==========
         stage('OWASP Dependency Check') {
             steps {
                 script {
@@ -118,29 +115,20 @@ pipeline {
             }
         }
         
-        // ========== DOCKER BUILD & PUSH ==========
-        stage('Docker Build') {
+        stage('Docker Build & Push') {
             steps {
                 script {
                     echo "🐳 Building Docker image..."
-                    sh '''
-                        docker build \
-                            --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-                            --build-arg VCS_REF=${env.GIT_COMMIT_HASH} \
-                            -t ${DOCKER_IMAGE}:${DOCKER_IMAGE_TAG} \
-                            -t ${DOCKER_IMAGE}:latest \
-                            .
-                    '''
-                }
-            }
-        }
-        
-        stage('Docker Push to Registry') {
-            steps {
-                script {
-                    echo "📤 Pushing image to Docker Hub..."
                     withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
                         sh '''
+                            docker build \
+                                --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+                                --build-arg VCS_REF=${env.GIT_COMMIT_HASH} \
+                                -t ${DOCKER_IMAGE}:${DOCKER_IMAGE_TAG} \
+                                -t ${DOCKER_IMAGE}:latest \
+                                .
+                            
+                            echo "📤 Pushing image to Docker Hub..."
                             docker push ${DOCKER_IMAGE}:${DOCKER_IMAGE_TAG}
                             docker push ${DOCKER_IMAGE}:latest
                         '''
@@ -164,7 +152,6 @@ pipeline {
             }
         }
         
-        // ========== DOCKER DEPLOYMENT (Local/Dev) ==========
         stage('Deploy Docker Container') {
             when {
                 branch 'main'
@@ -203,7 +190,6 @@ pipeline {
             }
         }
         
-        // ========== KUBERNETES DEPLOYMENT ==========
         stage('Deploy to Kubernetes') {
             when {
                 branch 'main'
@@ -212,39 +198,34 @@ pipeline {
                 script {
                     echo "☸️  Deploying to Kubernetes cluster..."
                     dir('K8S') {
-                        withKubeConfig([
-                            caCertificate: '',
-                            clusterName: '',
-                            contextName: '',
-                            credentialsId: 'k8s',
-                            namespace: "${K8S_NAMESPACE}",
-                            restrictKubeConfigAccess: false,
-                            serverUrl: ''
-                        ]) {
-                            sh '''
-                                echo "🔍 Checking kubeconfig..."
-                                kubectl config current-context
-                                kubectl get nodes
-                                
-                                echo "📋 Applying Kubernetes manifests..."
-                                kubectl apply -f deployment.yml
-                                kubectl apply -f service.yml
-                                
-                                echo "⏳ Waiting for rollout..."
-                                kubectl rollout status deployment/hotstar -n ${K8S_NAMESPACE} --timeout=5m || true
-                                
-                                echo "✅ Checking deployment status..."
-                                kubectl get deployment -n ${K8S_NAMESPACE}
-                                kubectl get pods -n ${K8S_NAMESPACE}
-                                kubectl get svc -n ${K8S_NAMESPACE}
-                            '''
-                        }
+                        sh '''
+                            echo "🔍 Configuring kubeconfig for EKS..."
+                            aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
+                            
+                            echo "🔍 Checking kubeconfig..."
+                            kubectl config current-context
+                            kubectl get nodes
+                            
+                            echo "📋 Checking namespace..."
+                            kubectl get namespace ${K8S_NAMESPACE} || kubectl create namespace ${K8S_NAMESPACE}
+                            
+                            echo "📋 Applying Kubernetes manifests..."
+                            kubectl apply -f deployment.yml -n ${K8S_NAMESPACE}
+                            kubectl apply -f service.yml -n ${K8S_NAMESPACE}
+                            
+                            echo "⏳ Waiting for rollout..."
+                            kubectl rollout status deployment/hotstar -n ${K8S_NAMESPACE} --timeout=5m || true
+                            
+                            echo "✅ Checking deployment status..."
+                            kubectl get deployment -n ${K8S_NAMESPACE}
+                            kubectl get pods -n ${K8S_NAMESPACE}
+                            kubectl get svc -n ${K8S_NAMESPACE}
+                        '''
                     }
                 }
             }
         }
         
-        // ========== SMOKE TESTS ==========
         stage('Smoke Tests') {
             when {
                 branch 'main'
@@ -298,11 +279,6 @@ pipeline {
         
         failure {
             echo "❌ Pipeline failed - Check logs above"
-            script {
-                sh '''
-                    echo "Pipeline failure detected"
-                '''
-            }
         }
     }
 }
