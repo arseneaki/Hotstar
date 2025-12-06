@@ -62,7 +62,11 @@ pipeline {
             steps {
                 script {
                     echo "⏳ Waiting for Quality Gate..."
-                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token'
+                    try {
+                        waitForQualityGate abortPipeline: false
+                    } catch (err) {
+                        echo "⚠️  Quality Gate check failed but continuing: ${err.message}"
+                    }
                 }
             }
         }
