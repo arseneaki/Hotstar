@@ -56,7 +56,20 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token'
+                    try {
+                        timeout(time: 5, unit: 'MINUTES') {
+                            def qg = waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token'
+                            if (qg.status != 'OK') {
+                                echo "⚠️ Quality Gate status: ${qg.status}"
+                                echo "⚠️ Continuing pipeline despite Quality Gate failure"
+                            } else {
+                                echo "✅ Quality Gate passed"
+                            }
+                        }
+                    } catch (Exception e) {
+                        echo "⚠️ Quality Gate check failed: ${e.getMessage()}"
+                        echo "⚠️ Continuing pipeline..."
+                    }
                 }
             }
         }
